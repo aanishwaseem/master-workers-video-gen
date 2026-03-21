@@ -1,9 +1,10 @@
+
 import boto3
 import os
 import subprocess
 import time
 
-MINIO_ENDPOINT = "http://192.168.100.5:9000"
+MINIO_ENDPOINT = "http://localhost:9000"
 ACCESS_KEY = "minioadmin"
 SECRET_KEY = "minioadmin"
 CODE_BUCKET = "worker-code"
@@ -18,30 +19,33 @@ s3 = boto3.client(
 
 def run():
     print("Starting bootstrapper...")
-    while True:
+    if True:
         try:
             # Ensure the bucket exists
             try:
                 s3.head_bucket(Bucket=CODE_BUCKET)
             except:
-                print(f"Waiting for bucket {CODE_BUCKET} to be created...")
-                time.sleep(5)
-                continue
+                # print(f"Waiting for bucket {CODE_BUCKET} to be created...")
+                # time.sleep(5)
+                # # continue
+                raise Exception(f"Bucket {CODE_BUCKET} does not exist. Please create it and upload image before starting the worker.")
 
-            print("Fetching latest worker_core.py from MinIO...")
-            os.makedirs("core", exist_ok=True)
-            dest = os.path.join("core", CORE_SCRIPT)
+            print("Fetching latest image from MinIO...")
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            dest = os.path.join(current_dir, CORE_SCRIPT)
             s3.download_file(CODE_BUCKET, CORE_SCRIPT, dest)
+            s3.download_file(CODE_BUCKET, "tasks.py", dest)
+
             
             print(f"Executing {CORE_SCRIPT}...")
             # This blocks until worker_core.py exits or fails
             subprocess.run(["python", dest])
             
         except Exception as e:
-            print(f"Bootstrapper error: {e}")
+            print(f"Bootstrapper error: {e}. Exiting..")
         
-        print("Restarting worker core in 5 seconds...")
-        time.sleep(5)
+        # print("Restarting worker core in 5 seconds...")
+        # time.sleep(5)
 
 if __name__ == "__main__":
     run()

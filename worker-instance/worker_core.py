@@ -2,20 +2,21 @@ import sys
 import multiprocessing
 
 # # Windows RQ Fix: Map 'fork' to 'spawn' so the RQ module can import on Windows
-# if sys.platform == "win32":
-#     _orig_get_context = multiprocessing.get_context
-#     def _patched_get_context(method=None):
-#         if method == 'fork':
-#             method = 'spawn'
-#         return _orig_get_context(method)
-#     multiprocessing.get_context = _patched_get_context
+if sys.platform == "win32":
+    _orig_get_context = multiprocessing.get_context
+    def _patched_get_context(method=None):
+        if method == 'fork':
+            method = 'spawn'
+        return _orig_get_context(method)
+    multiprocessing.get_context = _patched_get_context
 
-# multiprocessing.set_start_method('spawn', force=True)
+multiprocessing.set_start_method('spawn', force=True)
 
 import os
 import json
 import redis
-from rq import  Worker, Queue, Connection
+from rq import SimpleWorker, Queue
+
 
 
 # ================= GLOBAL CONFIG =================
@@ -30,10 +31,11 @@ def start_worker():
     Sub-process entry point to boot an individual WindowsWorker.
     """
     rq_redis = redis.Redis(host=REDIS_HOST, port=6379)
-    with Connection(rq_redis):
-        # Starts the polling loop cleanly inside this process
-        worker = Worker([Queue(QUEUE_NAME)])
-        worker.work()
+    queue = Queue(QUEUE_NAME, connection=rq_redis)
+
+    # Pass both the queue list and the connection explicitly
+    worker = SimpleWorker([queue], connection=rq_redis)
+    worker.work()
 
 if __name__ == "__main__":
     MAX_CONCURRENCY = 1

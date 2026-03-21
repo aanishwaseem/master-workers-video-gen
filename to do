@@ -1,0 +1,38 @@
+done:
+- terminiate workers code (try exception block)
+a worker will check the queue every 1 minute, if no video in queue, it will terminate itself
+
+- NOT BEING PUSHED INTO VIDEOS-OUTPUT (IMP) (msla is inside video_eneration_script.py)
+-completed queue (IMPORTANT) (i odnt want to push a job that is completed. )
+- if a worker performing a video has terminated , we have to push the video back to queue (TEST OUT)
+- video gen folder into worker core bucket also
+- hold the previous job states in a log file
+- terminate workers if no video in queue for more than 1 minutes (an indenp program launched from master w)
+we need to show which worker is processing what videos (maybe add that in queue)
+add progress tracking per video (estimated time) (extra)
+a config file to set the time limit, max retry limit per video, concurrency limit within the worker, and the number of workers to launch at max, and the path to the video folder, and the path to the output folder
+correct the folder structure (isolate them) so we can record a video by tomorrow
+- docker wrap (extra)
+
+after real vast nodes:
+
+empty the output of the worker after processing some batcheo, so that it may not run out of memory (after)
+ (extra)
+
+
+
+
+
+
+
+ “slot-based” concurrency system:
+
+At any time, there are at most MAX_CONCURRENCY jobs being processed.
+
+Each job is copied from MinIO into input_files/.
+
+A separate monitoring thread watches output_files/ for completed videos.
+
+When a job completes, the monitor signals the main thread to fetch the next job from the queue — but total running jobs never exceed MAX_CONCURRENCY.
+
+Jobs are allocated only as needed, not all at once.

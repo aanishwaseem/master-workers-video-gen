@@ -2,12 +2,12 @@ import cv2
 import numpy as np
 import sys
 import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-if len(sys.argv) < 2:
-    print("Usage: python pipeline_script.py <job_folder>")
-    sys.exit(1)
+# Create output folder inside script directory
+job_folder = os.path.join(BASE_DIR, "output_files")
+os.makedirs(job_folder, exist_ok=True)
 
-job_folder = sys.argv[1]
 output_file = os.path.join(job_folder, "result.mp4")
 
 width = 1280
@@ -17,6 +17,8 @@ seconds = 5
 frames = fps * seconds
 
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+output_file = os.path.join(job_folder, "Video 1 The Unexpected Mail-Order Bride_2", "result.mp4")
+
 video = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
 
 for i in range(frames):
