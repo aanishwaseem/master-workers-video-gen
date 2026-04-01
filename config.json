@@ -1,0 +1,10 @@
+{
+    "MAX_CONCURRENCY_OF_VIDEO_GEN_SCRIPT": 1,
+    "burst_worker_when_inactive": true,
+    "max_retry_limit_per_video": 3,
+    "flush_cache_on_startup": false,
+    "keep_backup_of_input_materials": true,
+    "redis_public_host": "gjzqxbrmsx.localto.net",
+    "redis_public_port": 6623
+
+}

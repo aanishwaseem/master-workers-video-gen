@@ -8,22 +8,26 @@ if sys.platform == "win32":
         return _orig_get_context(method)
     multiprocessing.get_context = _patched_get_context
 
-multiprocessing.set_start_method('spawn', force=True)
+    multiprocessing.set_start_method('spawn', force=True)
+
 import redis
 from rq import Queue, Retry
 import boto3
 import json
 import os
 import time
-import atexit
 import signal
+import uuid
+import re
 from rq.registry import FailedJobRegistry, StartedJobRegistry, FinishedJobRegistry
 
-CONFIG = {
-    "max_retry_limit_per_video": 3,
-}
-
-
+# Load config
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(BASE_DIR, "config.json")
+CONFIG = {}
+if os.path.exists(config_path):
+    with open(config_path, "r") as f:
+        CONFIG = json.load(f)
 
 REDIS_HOST = "127.0.0.1"
 QUEUE_NAME = "video_jobs"
@@ -34,104 +38,160 @@ SECRET_KEY = "minioadmin"
 BUCKET = "videos-input"
 CODE_BUCKET = "worker-code"
 
-r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
-rq_redis = redis.Redis(host=REDIS_HOST, port=6379)
-q = Queue(QUEUE_NAME, connection=rq_redis)
-failed_registry = FailedJobRegistry(queue=q)
-started_registry = StartedJobRegistry(QUEUE_NAME, connection=rq_redis)
-finished_registry = FinishedJobRegistry(QUEUE_NAME, connection=rq_redis)
-
 
 def handle_sigterm(*args):
     sys.exit(0)
 
-signal.signal(signal.SIGTERM, handle_sigterm)
-signal.signal(signal.SIGINT, handle_sigterm)
 
-s3 = boto3.client(
-    "s3",
-    endpoint_url=MINIO_ENDPOINT,
-    aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY,
-)
-
-print("Setting up code bucket...")
-try:
-    s3.head_bucket(Bucket=CODE_BUCKET)
-except Exception:
-    s3.create_bucket(Bucket=CODE_BUCKET)
-
-print("Uploading latest worker scripts...")
-s3.upload_file("worker_core.py", CODE_BUCKET, "worker_core.py")
-if os.path.exists("tasks.py"):
-    s3.upload_file("tasks.py", CODE_BUCKET, "tasks.py")
-
-worker_keys = r.keys("worker_heartbeat:*")
-workers = [key.split(":")[1] for key in worker_keys]
+def setup_s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=MINIO_ENDPOINT,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY,
+    )
 
 
-print(f"Found {len(workers)} workers: {workers}")
-
-print("Starting Master Loop to monitor MinIO and Redis...")
-
-# Load previous states if they exist
-
-# Keep track of last known states
-last_job_states = {}
-
-while True:
+def setup_code_bucket(s3):
+    print("Setting up code bucket...")
     try:
-        # 1. Retrieve current jobs in MinIO input bucket
-        response = s3.list_objects_v2(Bucket=BUCKET)
-        minio_jobs = set()
-        if "Contents" in response:
-            for obj in response["Contents"]:
-                parts = obj["Key"].split("/")
-                if len(parts) >= 2:
-                    folder = parts[0]
-                    minio_jobs.add(folder)
+        s3.head_bucket(Bucket=CODE_BUCKET)
+    except Exception:
+        s3.create_bucket(Bucket=CODE_BUCKET)
 
-        # 2. Get jobs from Redis using Built-in RQ features (IDs = folders)
-        queued_folders = set(q.job_ids)
-        running_folders = set(started_registry.get_job_ids())
-        done_folders = set(finished_registry.get_job_ids())
-        failed_folders = set(failed_registry.get_job_ids())
 
-        # 3. Check each job's status and print changes
-        all_jobs = minio_jobs.union(queued_folders, running_folders, done_folders, failed_folders)
-        for folder in all_jobs:
-            if folder in done_folders:
-                state = "completed"
-            elif folder in failed_folders:
-                state = "failed"
-            elif folder in running_folders:
-                state = "processing"
-            elif folder in queued_folders:
-                state = "queued"
+def upload_worker_scripts(s3):
+    print("Uploading latest worker scripts...")
+    worker_scripts_dir = "worker_runtime_scripts"
+    if not os.path.exists(worker_scripts_dir):
+        print(f"Warning: Directory '{worker_scripts_dir}' not found. No scripts uploaded.")
+        return
+        
+    for root, dirs, files in os.walk(worker_scripts_dir):
+        for file in files:
+            local_path = os.path.join(root, file)
+            relative_path = os.path.relpath(local_path, worker_scripts_dir)
+            s3_key = relative_path.replace(os.sep, '/')
+            
+            if file == "worker_core.py":
+                with open(local_path, "r", encoding="utf-8") as f:
+                    core_content = f.read()
+                
+                public_host = CONFIG.get("redis_public_host", "127.0.0.1")
+                public_port = CONFIG.get("redis_public_port", 6379)
+                burst_mode = CONFIG.get("burst_worker_when_inactive", False)
+                print(f"host:{public_host}, port:{public_port}, burst:{burst_mode}")
+                
+                core_content = re.sub(r'REDIS_HOST\s*=\s*".*?"', f'REDIS_HOST = "{public_host}"', core_content)
+                core_content = re.sub(r'REDIS_PORT\s*=\s*\d+', f'REDIS_PORT = {public_port}', core_content)
+                core_content = re.sub(r'BURST_WORKER_WHEN_INACTIVE\s*=\s*(True|False)', f'BURST_WORKER_WHEN_INACTIVE = {burst_mode}', core_content)
+                
+                temp_core_path = os.path.join(root, "worker_core_temp.py")
+                with open(temp_core_path, "w", encoding="utf-8") as f:
+                    f.write(core_content)
+                s3.upload_file(temp_core_path, CODE_BUCKET, s3_key)
+                os.remove(temp_core_path)
             else:
-                state = "unknown"
+                s3.upload_file(local_path, CODE_BUCKET, s3_key)
+            print(f"  Uploaded {s3_key}")
 
-            last_state = last_job_states.get(folder)
-            if last_state != state:
-                print(f"[Master] Job {folder} status changed: {last_state} -> {state}")
-                last_job_states[folder] = state
 
-        # 4. Add new jobs that are not already known to RQ
-        for folder in minio_jobs:
-            if folder in queued_folders or folder in running_folders or folder in done_folders or folder in failed_folders:
-                continue
+def discover_and_sanitize_jobs(s3):
+    print("[Master] Discovering jobs in MinIO...")
+    response = s3.list_objects_v2(Bucket=BUCKET)
+    
+    minio_jobs = {}
+    if "Contents" in response:
+        for obj in response["Contents"]:
+            key = obj["Key"]
+            parts = key.split("/")
+            if len(parts) >= 2:
+                folder = parts[0]
+                if folder == "backup":
+                    continue
+                if folder not in minio_jobs:
+                    minio_jobs[folder] = []
+                minio_jobs[folder].append(key)
 
-            # Enqueue new job
-            job_data = {"folder": folder}
-            q.enqueue(
-                "tasks.process_job", 
-                job_data,
-                job_id=folder,
-                retry=Retry(max=CONFIG["max_retry_limit_per_video"])
-            )
-            print(f"[Master] Queued NEW job: {folder}")
+    seen_lower = set()
+    final_jobs = {}
+    
+    for folder, keys in minio_jobs.items():
+        lower_f = folder.lower()
+        unique_folder = folder
+        if lower_f in seen_lower:
+            unique_folder = f"{folder}_{uuid.uuid4().hex[:6]}"
+            print(f"[Master] Duplicate folder name detected! Renaming {folder} -> {unique_folder}")
+            
+            for key in keys:
+                new_key = key.replace(f"{folder}/", f"{unique_folder}/", 1)
+                s3.copy_object(Bucket=BUCKET, CopySource={'Bucket': BUCKET, 'Key': key}, Key=new_key)
+                s3.delete_object(Bucket=BUCKET, Key=key)
+                
+            final_jobs[unique_folder] = [k.replace(f"{folder}/", f"{unique_folder}/", 1) for k in keys]
+        else:
+            seen_lower.add(lower_f)
+            final_jobs[unique_folder] = keys
+            
+    return final_jobs
+
+
+def enqueue_jobs(q, final_jobs, failed_registry, started_registry, finished_registry):
+    print(f"[Master] Checking Redis state and pushing new jobs if needed...")
+    
+    queued_jobs = set(q.job_ids)
+    running_jobs = set(started_registry.get_job_ids())
+    done_jobs = set(finished_registry.get_job_ids())
+    failed_jobs = set(failed_registry.get_job_ids())
+    
+    known_jobs = queued_jobs.union(running_jobs, done_jobs, failed_jobs)
+    
+    jobs_to_queue = []
+    for folder in final_jobs.keys():
+        if folder not in known_jobs:
+            jobs_to_queue.append(folder)
+            
+    print(f"[Master] Found {len(final_jobs)} total folders, {len(jobs_to_queue)} of which are new and will be queued.")
+            
+    for folder in jobs_to_queue:
+        job_data = {"folder": folder}
+        q.enqueue(
+            "tasks.process_job", 
+            job_data,
+            job_id=folder,
+            retry=Retry(max=CONFIG.get("max_retry_limit_per_video", 3)),
+            result_ttl=86400
+        )
+        print(f"[Master] Queued job: {folder}")
+
+
+def main():
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    signal.signal(signal.SIGINT, handle_sigterm)
+
+    r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+    if CONFIG.get("flush_cache_on_startup"):
+        print("[Master] Flushing Redis cache as per config...")
+        r.flushall()
+
+    q = Queue(QUEUE_NAME, connection=r)
+    failed_registry = FailedJobRegistry(queue=q)
+    started_registry = StartedJobRegistry(QUEUE_NAME, connection=r)
+    finished_registry = FinishedJobRegistry(QUEUE_NAME, connection=r)
+
+    s3 = setup_s3_client()
+    setup_code_bucket(s3)
+    upload_worker_scripts(s3)
+
+    try:
+        final_jobs = discover_and_sanitize_jobs(s3)
+        enqueue_jobs(q, final_jobs, failed_registry, started_registry, finished_registry)
+            
+        print("[Master] Done queuing jobs. Master will now exit.")
 
     except Exception as e:
-        print(f"[Master] Unexpected error in master loop: {e}")
+        print(f"[Master] Unexpected error: {e}")
 
-    time.sleep(5)
+
+if __name__ == "__main__":
+    main()

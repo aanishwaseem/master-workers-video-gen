@@ -2,8 +2,6 @@ done:
 - terminiate workers code (try exception block)
 a worker will check the queue every 1 minute, if no video in queue, it will terminate itself
 
-- NOT BEING PUSHED INTO VIDEOS-OUTPUT (IMP) (msla is inside video_eneration_script.py)
--completed queue (IMPORTANT) (i odnt want to push a job that is completed. )
 - if a worker performing a video has terminated , we have to push the video back to queue (TEST OUT)
 - video gen folder into worker core bucket also
 - hold the previous job states in a log file
@@ -18,6 +16,7 @@ after real vast nodes:
 
 empty the output of the worker after processing some batcheo, so that it may not run out of memory (after)
  (extra)
+- ensure unique name of each folder(rename them if duplicate)
 
 
 
@@ -36,3 +35,29 @@ A separate monitoring thread watches output_files/ for completed videos.
 When a job completes, the monitor signals the main thread to fetch the next job from the queue — but total running jobs never exceed MAX_CONCURRENCY.
 
 Jobs are allocated only as needed, not all at once.
+
+If MinIO contains:
+
+worker-code/
+│
+├── worker_core.py
+├── tasks.py
+├── utils/
+│   ├── video.py
+│   └── audio.py
+└── config/
+    └── settings.yaml
+
+Your bootstrapper will recreate locally:
+
+local_folder/
+│
+├── worker_core.py
+├── tasks.py
+├── utils/
+│   ├── video.py
+│   └── audio.py
+└── config/
+    └── settings.yaml
+
+Exactly mirrored.

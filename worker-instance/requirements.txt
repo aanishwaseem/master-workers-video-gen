@@ -1,0 +1,10 @@
+# Cloud Storage & Bootstrapping
+boto3
+
+# Task Queue & Worker Logic
+redis
+rq
+
+# Video Processing & Math
+opencv-python-headless
+numpy

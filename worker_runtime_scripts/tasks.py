@@ -3,7 +3,7 @@ import subprocess
 import boto3
 
 # ================= GLOBAL CONFIG =================
-MINIO_ENDPOINT = "http://localhost:9000"
+MINIO_ENDPOINT = "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/"
 ACCESS_KEY = "minioadmin"
 SECRET_KEY = "minioadmin"
 INPUT_BUCKET = "videos-input"
@@ -74,7 +74,7 @@ def process_job(job_data):
     This is the core task function that WindowsWorker will execute in a clean spawned process.
     """
     folder = job_data["folder"]
-    print(f"\n========== STARTING PIPELINE: {folder} ==========")
+    print(f"\n========== STARTING VIDEO RENDER: {folder} ==========")
     
     try:
         # 1. Download
@@ -84,7 +84,6 @@ def process_job(job_data):
         print(f"[tasks] Running video generation script...")
         script_path = os.path.join(VIDEO_GEN_DIR, VIDEO_GENERATION_SCRIPT)
         
-        # Pass the folder path if the script expects it (like pipeline_script.py did)
         job_local_path = os.path.join(INPUT_FILES_DIR, folder)
 
         # Block the worker until finished
