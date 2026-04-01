@@ -1,0 +1,19 @@
+# Ignore progress
+progress/
+*.progress
+progress.*
+
+# Ignore old scripts
+old-scripts/
+old_scripts/
+scripts/old/
+*old*.sh
+
+# Ignore backups
+*.bak
+*.backup
+*~
+backups/
+
+# Specific executable
+localtonet.exe
