@@ -13,7 +13,6 @@ scripts/old/
 *.bak
 *.backup
 *~
-backups/
+backup/
 
-# Specific executable
-localtonet.exe
+.vscode/
