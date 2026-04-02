@@ -1,17 +1,31 @@
-# Use an official Python runtime as a parent image (matching the compiled cpython-313)
-FROM python:3.13-slim
+# 1. Corrected Python base
+FROM python:3.10
 
-# Set the working directory in the container
+# 2. Install SSH and dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3. Configure SSH for root login (Fixed mkdir with -p)
+RUN mkdir -p /var/run/sshd && \
+    mkdir -p /root/.ssh && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
+
+# 4. Set the working directory
 WORKDIR /app
 
-# Copy the requirements file into the container
+# 5. Application dependencies
 COPY requirements.txt .
-
-# Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the current directory contents into the container at /app
+# 6. Copy your code
 COPY . .
 
-# Run bootstrapper.py when the container launches (update this if a different script should be the entry point)
-CMD ["python", "bootstrapper.py"]
+# 7. Expose Port 22
+EXPOSE 22
+
+# 8. Optimized CMD for Vast.ai (Injects key if provided, starts SSH, then runs app)
+CMD if [ -n "$SSH_PUBLIC_KEY" ]; then echo "$SSH_PUBLIC_KEY" >> /root/.ssh/authorized_keys; fi && \
+    service ssh start && \
+    python bootstrapper.py

@@ -109,15 +109,19 @@ def main():
             
             # The SDK often returns a dict/JSON with the response, we need to extract the new contract ID
             # the machine's actual "instance_id" will be returned
+
             response = dict(sdk.launch_instance(
                 id=offer_id, 
-                image=FULL_IMAGE_PATH,
-                gpu_name=gpu_name_formatted, 
+                image="burnerspam/salad-video-workflow:v21-final",
+                disk=15,
+                env="-p 8081:8081/udp -h billybob",
+                gpu_name=gpu_name_formatted,
                 num_gpus='1',
-                disk=10,
-                env="-e CONTAINER_ID={VAST_CONTAINERLABEL}" # We can't interpolate Vast label until container starts, but ideally the instance ID itself is used. Let's force an env var if possible, otherwise rely on ID returned. Instead we'll track what the API returns.
+                ssh=True,
+                direct=True,
+                onstart_cmd="env | grep _ >> /etc/environment; echo 'starting up'",
+                launch_mode="ssh"
             ))
-            
             print(f"Launch Response: {response}")
             
             # Identify the new machine instance ID, which vast returns as 'new_contract' 
