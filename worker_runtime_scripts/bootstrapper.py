@@ -1,5 +1,9 @@
 
+import collections
+import collections.abc
+collections.Callable = collections.abc.Callable
 import boto3
+
 import os
 import subprocess
 import time
@@ -9,18 +13,10 @@ import sys
 import json
 from datetime import datetime
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
-with open(CONFIG_PATH, 'r') as f:
-    config = json.load(f)
-
-MINIO_ENDPOINT = config.get('minio_endpoint')
-ACCESS_KEY = config.get('minio_access_key')
-SECRET_KEY = config.get('minio_secret_key')
-CODE_BUCKET = config.get('minio_code_bucket')
-JOBS_BUCKET = config.get('minio_jobs_bucket')
-CORE_SCRIPT = config.get('worker_core_script')
-FETCH_CODE = config.get('fetch_worker_code_from_minio', True)
-FETCH_CONFIG = config.get('fetch_config_from_minio', False)
+def get_config():
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    with open(config_path, 'r') as f:
+        return json.load(f)
 
 CONTAINER_ID = os.getenv("CONTAINER_ID", "local_instance")
 
@@ -38,25 +34,31 @@ logging.basicConfig(
     ]
 )
 
-s3 = boto3.client(
-    "s3",
-    endpoint_url=MINIO_ENDPOINT,
-    aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY,
-)
-
 def run():
-    global CORE_SCRIPT, FETCH_CODE, JOBS_BUCKET
     logging.info("Starting bootstrapper...")
+    
+    config = get_config()
+    code_bucket = config.get('minio_code_bucket')
+    core_script = config.get('worker_core_script')
+    fetch_code = config.get('fetch_worker_code_from_minio', True)
+    fetch_config = config.get('fetch_config_from_minio', False)
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=config.get('minio_endpoint'),
+        aws_access_key_id=config.get('minio_access_key'),
+        aws_secret_access_key=config.get('minio_secret_key'),
+    )
+
     if True:
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             
-            if FETCH_CONFIG:
+            if fetch_config:
                 logging.info("Fetching latest config.json from MinIO...")
                 try:
                     temp_config_path = os.path.join(current_dir, 'temp_minio_config.json')
-                    s3.download_file(CODE_BUCKET, 'config.json', temp_config_path)
+                    s3.download_file(code_bucket, 'config.json', temp_config_path)
                     
                     with open(temp_config_path, 'r') as f:
                         minio_config = json.load(f)
@@ -65,33 +67,42 @@ def run():
                     config.update(minio_config)
                     
                     # Rewrite the merged config back to the local config.json file
-                    with open(CONFIG_PATH, 'w') as f:
+                    config_path = os.path.join(current_dir, 'config.json')
+                    with open(config_path, 'w') as f:
                         json.dump(config, f, indent=2)
                         
                     if os.path.exists(temp_config_path):
                         os.remove(temp_config_path)
 
-                    CORE_SCRIPT = config.get('worker_core_script', CORE_SCRIPT)
-                    FETCH_CODE = config.get('fetch_worker_code_from_minio', FETCH_CODE)
-                    JOBS_BUCKET = config.get('minio_jobs_bucket', JOBS_BUCKET)
+                    core_script = config.get('worker_core_script', core_script)
+                    fetch_code = config.get('fetch_worker_code_from_minio', fetch_code)
+                    code_bucket = config.get('minio_code_bucket', code_bucket)
+                    
+                    # Re-initialize S3 in case credentials or endpoint changed
+                    s3 = boto3.client(
+                        "s3",
+                        endpoint_url=config.get('minio_endpoint'),
+                        aws_access_key_id=config.get('minio_access_key'),
+                        aws_secret_access_key=config.get('minio_secret_key'),
+                    )
                 except Exception as e:
                     logging.error(f"Failed to fetch config from MinIO: {e}. Falling back to local configuration.")
 
-            core_path = os.path.join(current_dir, CORE_SCRIPT)
+            core_path = os.path.join(current_dir, core_script)
 
-            if FETCH_CODE:
+            if fetch_code:
                 # Ensure the bucket exists
                 try:
-                    s3.head_bucket(Bucket=CODE_BUCKET)
+                    s3.head_bucket(Bucket=code_bucket)
                 except:
-                    logging.error(f"Bucket {CODE_BUCKET} does not exist. Please create it and upload image before starting the worker.")
-                    raise Exception(f"Bucket {CODE_BUCKET} does not exist. Please create it and upload image before starting the worker.")
+                    logging.error(f"Bucket {code_bucket} does not exist. Please create it and upload image before starting the worker.")
+                    raise Exception(f"Bucket {code_bucket} does not exist. Please create it and upload image before starting the worker.")
 
                 logging.info("Fetching latest worker code from MinIO...")
 
                 # List all objects inside bucket with pagination
                 paginator = s3.get_paginator('list_objects_v2')
-                pages = paginator.paginate(Bucket=CODE_BUCKET)
+                pages = paginator.paginate(Bucket=code_bucket)
                 
                 is_empty = True
                 for page in pages:
@@ -112,7 +123,7 @@ def run():
                         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
                         logging.info(f"Downloading {key}...")
-                        s3.download_file(CODE_BUCKET, key, local_path)
+                        s3.download_file(code_bucket, key, local_path)
 
                 if is_empty:
                     logging.error("Bucket is empty.")
@@ -120,7 +131,7 @@ def run():
 
 
 
-            logging.info(f"Executing {CORE_SCRIPT}...")
+            logging.info(f"Executing {core_script}...")
             # This blocks until worker_core.py exits or fails
             try:
                 # Capture standard output and error output into Python logger or allow them to stream naturally
@@ -143,12 +154,12 @@ def run():
             logging.error(f"Bootstrapper error: {e}. Exiting..")
             
         finally:
-            if FETCH_CODE:
+            if fetch_code:
                 logging.info("Cleaning up fetched worker code...")
                 try:
                     # Remove everything that was downloaded from the bucket
                     paginator = s3.get_paginator('list_objects_v2')
-                    pages = paginator.paginate(Bucket=CODE_BUCKET)
+                    pages = paginator.paginate(Bucket=code_bucket)
                     
                     # We need to collect the keys first to avoid deleting directories before their files
                     downloaded_keys = []

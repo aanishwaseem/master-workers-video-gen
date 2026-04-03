@@ -55,4 +55,8 @@ ENV MPLBACKEND=Agg
 # Xvfb setup envs for SeleniumBase if needed (SB handles some, but good to have)
 ENV DISPLAY=:99
 
-CMD ["python", "bootstrapper.py"]
+# Create the start script directly in /app
+RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &\npython /app/bootstrapper.py' > /app/start.sh && chmod +x /app/start.sh
+
+# Use the absolute path for the CMD
+CMD ["/bin/bash", "/app/start.sh"]

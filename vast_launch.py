@@ -45,46 +45,6 @@ s3 = boto3.client(
     aws_secret_access_key=SECRET_KEY,
 )
 
-class InstanceManager:
-    def __init__(self):
-        self.sdk = sdk
-
-    def stop(self, instance_id: int):
-        try:
-            print(f"[InstanceManager] Stopping instance {instance_id}...")
-            self.sdk.stop_instance(id=instance_id)
-            print("[InstanceManager] ✅ Instance stopped.")
-        except Exception as e:
-            print(f"[InstanceManager] ❌ Stop failed: {e}")
-
-    def destroy(self, instance_id: int):
-        try:
-            print(f"[InstanceManager] Destroying instance {instance_id}...")
-            self.sdk.destroy_instance(id=instance_id)
-            print("[InstanceManager] 🔥 Instance destroyed.")
-        except Exception as e:
-            print(f"[InstanceManager] ❌ Destroy failed: {e}")
-
-    def restart(self, instance_id: int):
-        try:
-            print(f"[InstanceManager] Restarting instance {instance_id}...")
-            self.sdk.start_instance(id=instance_id)
-            print("[InstanceManager] 🚀 Instance restarted.")
-        except Exception as e:
-            print(f"[InstanceManager] ❌ Restart failed: {e}")
-
-
-def wait_for_completion(instance_id):
-    print(f"Waiting for worker instance {instance_id} to drop its status flag...")
-    while True:
-        try:
-            flag_key = f"{instance_id}/done.flag"
-            response = s3.get_object(Bucket=JOBS_BUCKET, Key=flag_key)
-            status = response['Body'].read().decode('utf-8').strip()
-            print(f"Worker {instance_id} finished with status: {status}")
-            return status
-        except Exception:
-            time.sleep(15)
 
 
 def display_stats(status_list):
@@ -121,13 +81,14 @@ def main():
             print("Done uploading worker config.")
 
     print("Searching for instances...")
-    offers = sdk.search_offers(query="gpu_name==GTX_1070 num_gpus==1", order="price")
-    
+    offers = sdk.search_offers(
+        query="gpu_name=GTX_1080",
+        order="price"
+    )
     if not offers:
         print("No instances found matching your criteria.")
         return
 
-    manager = InstanceManager()
     launched_instances = []
 
     for offer in offers:
@@ -158,13 +119,13 @@ def main():
             response = dict(sdk.launch_instance(
                 id=offer_id, 
                 image=f"{FULL_IMAGE_PATH}",
-                disk=15,
-                env="-p 8081:8081/udp -h billybob",
+                disk=32,
+                env="-p 1111:1111 -p 6006:6006 -p 8080:8080 -p 8384:8384 -p 72299:72299 -e OPEN_BUTTON_PORT=\"1111\" -e OPEN_BUTTON_TOKEN=\"1\" -e JUPYTER_DIR=\"/\" -e DATA_DIRECTORY=\"/workspace/\" -e PORTAL_CONFIG=\"localhost:1111:11111:/:Instance Portal|localhost:8080:18080:/:Jupyter|localhost:8080:8080:/terminals/1:Jupyter Terminal|localhost:8384:18384:/:Syncthing|localhost:6006:16006:/:Tensorboard\"",
                 gpu_name=gpu_name_formatted,
                 num_gpus='1',
                 ssh=True,
                 direct=True,
-                onstart_cmd="env | grep _ >> /etc/environment; echo 'starting up'",
+                onstart_cmd="/app/start.sh",
                 launch_mode="ssh"
             ))
             print(f"Launch Response: {response}")

@@ -1,52 +1,38 @@
+
 import sys
 import os
+import collections
+import collections.abc
+collections.Callable = collections.abc.Callable
 import boto3
 import uuid
 import shutil
 import json
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
-with open(CONFIG_PATH, 'r') as f:
-    config = json.load(f)
+def get_config():
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    with open(config_path, 'r') as f:
+        return json.load(f)
 
-# ================= GLOBAL CONFIG =================
-MINIO_ENDPOINT = config.get('minio_endpoint')
-ACCESS_KEY = config.get('minio_access_key')
-SECRET_KEY = config.get('minio_secret_key')
-INPUT_BUCKET = config.get('minio_input_bucket')
-OUTPUT_BUCKET = config.get('minio_output_bucket')
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VIDEO_GEN_DIR = os.path.join(BASE_DIR, config.get('video_gen_dir_name'))
-
-# Setup import for main.py
-original_dir = os.getcwd()
-os.chdir(VIDEO_GEN_DIR)
-sys.path.append(VIDEO_GEN_DIR)
-
-try:
-    import main
-except ImportError as e:
-    print(f"Failed to import main: {e}")
-
-os.chdir(original_dir)
-
-def get_s3_client():
+def get_s3_client(config):
     return boto3.client(
         "s3",
-        endpoint_url=MINIO_ENDPOINT,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
+        endpoint_url=config.get('minio_endpoint'),
+        aws_access_key_id=config.get('minio_access_key'),
+        aws_secret_access_key=config.get('minio_secret_key'),
     )
 
 def download_from_minio(folder, dest_dir):
-    s3 = get_s3_client()
+    config = get_config()
+    s3 = get_s3_client(config)
+    input_bucket = config.get('minio_input_bucket')
+    
     folder_input_path = os.path.join(dest_dir, folder)
     os.makedirs(folder_input_path, exist_ok=True)
     
     print(f"[tasks] Downloading {folder} from MinIO to {folder_input_path}...")
     prefix = f"{folder}/"
-    response = s3.list_objects_v2(Bucket=INPUT_BUCKET, Prefix=prefix)
+    response = s3.list_objects_v2(Bucket=input_bucket, Prefix=prefix)
     
     if "Contents" not in response:
         raise Exception(f"No files found for job {folder}")
@@ -59,12 +45,14 @@ def download_from_minio(folder, dest_dir):
             
         dest = os.path.join(folder_input_path, relative_key)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        s3.download_file(INPUT_BUCKET, key, dest)
+        s3.download_file(input_bucket, key, dest)
         
     print(f"[tasks] Download Complete: {folder}")
 
 def upload_to_minio(folder, source_dir):
-    s3 = get_s3_client()
+    config = get_config()
+    s3 = get_s3_client(config)
+    output_bucket = config.get('minio_output_bucket')
     
     mp4_files = [f for f in os.listdir(source_dir) if f.endswith(".mp4")]
     
@@ -75,22 +63,42 @@ def upload_to_minio(folder, source_dir):
     for mp4_file in mp4_files:
         local_file = os.path.join(source_dir, mp4_file)
         s3_key = f"{folder}/{mp4_file}"
-        s3.upload_file(local_file, OUTPUT_BUCKET, s3_key)
+        s3.upload_file(local_file, output_bucket, s3_key)
         print(f"[tasks] Upload Complete: {s3_key}")
 
 def safe_process_project(project_name, project_path, output_root):
     try:
         print(f"[{project_name}] Starting processing...")
         success = main.process_project(project_name, project_path, output_root)
-        return success
+        return success, None
     except Exception as e:
         print(f"[{project_name}] Exception caught during processing: {e}")
-        return False
+        return False, e
 
 def process_job(job_data):
     """
     This is the core task function that WindowsWorker will execute in a clean spawned process.
     """
+    config = get_config()
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    video_gen_dir = os.path.join(base_dir, config.get('video_gen_dir_name'))
+    
+    original_dir = os.getcwd()
+    os.chdir(video_gen_dir)
+    if video_gen_dir not in sys.path:
+        sys.path.append(video_gen_dir)
+        
+    global main
+    if 'main' not in globals():
+        try:
+            import main
+        except ImportError as e:
+            print(f"Failed to import main: {e}")
+            os.chdir(original_dir)
+            raise
+
+    os.chdir(original_dir)
+
     folder = job_data["folder"]
     print(f"\n========== STARTING VIDEO RENDER: {folder} ==========")
     
@@ -108,11 +116,11 @@ def process_job(job_data):
         # 2. Process
         project_path = os.path.join(input_dir, folder)
         
-        os.chdir(VIDEO_GEN_DIR)
-        success = safe_process_project(folder, project_path, output_dir)
+        os.chdir(video_gen_dir)
+        success, e = safe_process_project(folder, project_path, output_dir)
         
         if not success:
-            raise RuntimeError("safe_process_project returned False")
+            raise RuntimeError(f"safe_process_project returned False")
             
         # 3. Upload Results
         os.chdir(original_dir)
