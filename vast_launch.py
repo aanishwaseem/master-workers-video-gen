@@ -1,19 +1,42 @@
+import sys
+import collections
+import collections.abc
+collections.Callable = collections.abc.Callable
+
 from vastai_sdk import VastAI
 import json
 import boto3
 import time
 import os
+import redis
+from rq import Queue
+from startup_checks import run_startup_checks
 
-API_KEY = "b289c7ae41a8ae03381ccb5fa529b02bf5b5a47616fea98477fa52d20dab53d2"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load master config to get vastai properties
+config_path = os.path.join(BASE_DIR, "config.json")
+MASTER_CONFIG = {}
+if os.path.exists(config_path):
+    with open(config_path, "r") as f:
+        MASTER_CONFIG = json.load(f)
+
+worker_config_path = os.path.join(BASE_DIR, "worker_config.json")
+WORKER_CONFIG = {}
+if os.path.exists(worker_config_path):
+    with open(worker_config_path, "r") as f:
+        WORKER_CONFIG = json.load(f)
+
+API_KEY = MASTER_CONFIG.get("vastai_api_key", "c55e7735e11d4cbab86bd25ff9825af42289a4409f5377ac49393ea504307cc4")
 sdk = VastAI(api_key=API_KEY)
-FULL_IMAGE_PATH = "burnerspam/vast-worker-instance:latest" # Update this
+FULL_IMAGE_PATH = MASTER_CONFIG.get("docker_image_path", "burnerspam/vast-worker-instance:latest") # Update this
 
-# Hardcoded MinIO credentials for matching up with the worker bootstrapper signals
-MINIO_ENDPOINT = "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/"
-ACCESS_KEY = "minioadmin"
-SECRET_KEY = "minioadmin"
-CODE_BUCKET = "worker-code"
-JOBS_BUCKET = "jobs"
+# MinIO credentials for matching up with the worker bootstrapper signals
+MINIO_ENDPOINT = WORKER_CONFIG.get("minio_endpoint", "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/")
+ACCESS_KEY = WORKER_CONFIG.get("minio_access_key", "minioadmin")
+SECRET_KEY = WORKER_CONFIG.get("minio_secret_key", "minioadmin")
+CODE_BUCKET = WORKER_CONFIG.get("minio_code_bucket", "worker-code")
+JOBS_BUCKET = WORKER_CONFIG.get("minio_jobs_bucket", "jobs")
 
 s3 = boto3.client(
     "s3",
@@ -75,6 +98,28 @@ def display_stats(status_list):
 
 
 def main():
+    print("Running startup checks...")
+    run_startup_checks()
+    
+    print("Checking initial configurations...")
+    
+    try:
+        r = redis.Redis(host="127.0.0.1", port=6379, decode_responses=True)
+        q = Queue("video_jobs", connection=r)
+        queue_count = len(q.job_ids)
+        print(f"\n======================================")
+        print(f"📊 JOBS CURRENTLY IN QUEUE: {queue_count}")
+        print(f"======================================\n")
+    except Exception as e:
+        print(f"⚠️ Could not fetch queue count from Redis: {e}")
+    
+    # Load master config to check if we should update workers config
+    if MASTER_CONFIG.get("update_workers_config", False):
+        if os.path.exists("worker_config.json"):
+            print("Uploading worker_config.json to MinIO as config.json...")
+            s3.upload_file("worker_config.json", CODE_BUCKET, "config.json")
+            print("Done uploading worker config.")
+
     print("Searching for instances...")
     offers = sdk.search_offers(query="gpu_name==GTX_1070 num_gpus==1", order="price")
     
@@ -112,7 +157,7 @@ def main():
 
             response = dict(sdk.launch_instance(
                 id=offer_id, 
-                image="burnerspam/salad-video-workflow:v21-final",
+                image=f"{FULL_IMAGE_PATH}",
                 disk=15,
                 env="-p 8081:8081/udp -h billybob",
                 gpu_name=gpu_name_formatted,
@@ -143,27 +188,6 @@ def main():
     else:
         print("You've reviewed all available offers.")
 
-    # If we launched machines, wait for them
-    if launched_instances:
-        print(f"\nWait cycle initiated for {len(launched_instances)} instances...")
-        final_statuses = []
-        
-        # NOTE: wait_for_completion blocks heavily. If running multiple, it waits for them sequentially.
-        # So we wait for the first, then the second... which is fine since they will eventually both finish.
-        for inst_id in launched_instances:
-            # We assume CONTAINER_ID on worker matches the `inst_id`. In a real system,
-            # you might pass `-e CONTAINER_ID={inst_id}` in launch_instance parameters.
-            
-            # Optional: You can try injecting the container ID via the Env parameter during launch above
-            # env=f"-e CONTAINER_ID={inst_id}"
-            
-            status = wait_for_completion(inst_id)
-            final_statuses.append(status)
-            
-            # Auto cleanup
-            manager.stop(inst_id)
-            
-        display_stats(final_statuses)
 
 if __name__ == "__main__":
     main()

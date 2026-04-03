@@ -1,8 +1,5 @@
 import sys
 import multiprocessing
-
-
-from rq import Worker
 import os
 import json
 import redis
@@ -10,14 +7,18 @@ from rq import SimpleWorker, Queue
 
 import rq.timeouts
 
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+with open(CONFIG_PATH, 'r') as f:
+    config = json.load(f)
+
 # ================= GLOBAL CONFIG =================
-REDIS_HOST = "gjzqxbrmsx.localto.net"
-REDIS_PORT = 6245
-BURST_WORKER_WHEN_INACTIVE = True
-QUEUE_NAME = "video_jobs"
+REDIS_HOST = config.get('redis_host')
+REDIS_PORT = config.get('redis_port')
+BURST_WORKER_WHEN_INACTIVE = config.get('worker_burst_when_inactive')
+QUEUE_NAME = config.get('worker_queue_name')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VIDEO_GEN_DIR = os.path.join(BASE_DIR, "video-gen")
+VIDEO_GEN_DIR = os.path.join(BASE_DIR, config.get('video_gen_dir_name'))
 class NoOpDeathPenalty:
     def __init__(self, *args, **kwargs):
         pass
@@ -50,20 +51,15 @@ if __name__ == "__main__":
                 method = 'spawn'
             return _orig_get_context(method)
         multiprocessing.get_context = _patched_get_context
+    MAX_CONCURRENCY = config.get("worker_max_concurrency", 1)
 
-    multiprocessing.set_start_method('spawn', force=True)
-
-    MAX_CONCURRENCY = 1
-    config_path = os.path.join(VIDEO_GEN_DIR, "config.json")
+    print(f"Starting {MAX_CONCURRENCY} WindowsWorker processes...")
     
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r") as f:
-                v_config = json.load(f)
-                MAX_CONCURRENCY = v_config.get("no_of_concurrent_generations", 1)
-        except Exception as e:
-            print("Failed to load config:", e)
+    processes = []
+    for _ in range(MAX_CONCURRENCY):
+        p = multiprocessing.Process(target=start_worker)
+        p.start()
+        processes.append(p)
 
-    print(f"Starting WindowsWorker processes...")
-    
-    start_worker()    
+    for p in processes:
+        p.join()    

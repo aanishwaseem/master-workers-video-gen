@@ -1,0 +1,33 @@
+
+# Deep Learning / Core
+torch
+torchvision
+ctranslate2==4.6.2
+faster-whisper==1.2.1
+
+# Multimedia
+ffmpeg-python
+ImageIO
+av
+
+# Utilities
+pyyaml
+tqdm
+rich
+coloredlogs
+attrs
+packaging
+certifi
+pillow
+pysrt
+
+# Misc
+psutil
+
+# Cloud Storage & Worker Logic
+boto3
+redis
+rq
+
+vastai
+vastai-sdk

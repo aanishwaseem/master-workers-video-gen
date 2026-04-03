@@ -1,0 +1,18 @@
+{
+  "minio_endpoint": "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/",
+  "minio_access_key": "minioadmin",
+  "minio_secret_key": "minioadmin",
+  "minio_input_bucket": "videos-input",
+  "minio_output_bucket": "videos-output",
+  "minio_code_bucket": "worker-code",
+  "minio_jobs_bucket": "jobs",
+  "redis_host": "gjzqxbrmsx.localto.net",
+  "redis_port": 6428,
+  "worker_burst_when_inactive": true,
+  "worker_queue_name": "video_jobs",
+  "worker_max_concurrency": 2,
+  "worker_core_script": "worker_core.py",
+  "video_gen_dir_name": "Video_Gen_from_burnerspam-v21",
+  "fetch_worker_code_from_minio": false,
+  "fetch_config_from_minio": true
+}

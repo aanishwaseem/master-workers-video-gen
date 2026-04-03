@@ -1,4 +1,9 @@
 
+import sys
+import collections
+import collections.abc
+collections.Callable = collections.abc.Callable
+
 import boto3
 import os
 import subprocess

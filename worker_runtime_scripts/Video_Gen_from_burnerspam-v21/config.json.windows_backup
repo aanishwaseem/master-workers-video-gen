@@ -1,0 +1,23 @@
+{
+    "device_for_subtitile_generation": "cuda",
+    "image_saturation": 1.6,
+    "subtitle_colour_in_BGR_HEX_format": "#FFFFFF",
+    "subtitle_outline_colour_in_BGR_HEX_format": "#000000",
+    "subtitle_font": "Luckiest Guy",
+    "subtitle_font_size": 16,
+    "no_of_chars_per_line": 60,
+    "fade_in_duration_in_seconds": 3,
+    "subtitle_vertical_position_in_pixels": 25,
+    "max_subtitle_time_in_secs": 0,
+    "merge_audio_files_in_each_project": true,
+    "playback_speed": 1,
+    "zoom_duration_in_seconds": 23.0,
+    "zoom_intensity_percentage": 29,
+    "dust_effect_path": "C:\\Users\\Shadow\\Desktop\\Compiled Binaries\\Scripts_to_Video_Workflow\\Programs\\Video_Gen\\inputEffects\\sparks.webm",
+    "intro": false,
+    "intro_video_path": "C:\\Users\\Shadow\\Desktop\\Compiled Binaries\\Scripts_to_Video_Workflow\\Programs\\Video_Gen\\introVideo\\intro.mp4",
+    "duration_per_image": 5,
+    "fps": 24,
+    "run_parallel_flag": true,
+    "no_of_concurrent_generations": 3
+}

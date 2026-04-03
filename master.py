@@ -1,5 +1,10 @@
 import multiprocessing
 import sys
+
+import collections
+import collections.abc
+collections.Callable = collections.abc.Callable
+
 if sys.platform == "win32":
     _orig_get_context = multiprocessing.get_context
     def _patched_get_context(method=None):
@@ -73,28 +78,29 @@ def upload_worker_scripts(s3):
             relative_path = os.path.relpath(local_path, worker_scripts_dir)
             s3_key = relative_path.replace(os.sep, '/')
             
-            if file == "worker_core.py":
-                with open(local_path, "r", encoding="utf-8") as f:
-                    core_content = f.read()
-                
-                public_host = CONFIG.get("redis_public_host", "127.0.0.1")
-                public_port = CONFIG.get("redis_public_port", 6379)
-                burst_mode = CONFIG.get("burst_worker_when_inactive", False)
-                print(f"host:{public_host}, port:{public_port}, burst:{burst_mode}")
-                
-                core_content = re.sub(r'REDIS_HOST\s*=\s*".*?"', f'REDIS_HOST = "{public_host}"', core_content)
-                core_content = re.sub(r'REDIS_PORT\s*=\s*\d+', f'REDIS_PORT = {public_port}', core_content)
-                core_content = re.sub(r'BURST_WORKER_WHEN_INACTIVE\s*=\s*(True|False)', f'BURST_WORKER_WHEN_INACTIVE = {burst_mode}', core_content)
-                
-                temp_core_path = os.path.join(root, "worker_core_temp.py")
-                with open(temp_core_path, "w", encoding="utf-8") as f:
-                    f.write(core_content)
-                s3.upload_file(temp_core_path, CODE_BUCKET, s3_key)
-                os.remove(temp_core_path)
-            else:
-                s3.upload_file(local_path, CODE_BUCKET, s3_key)
+            s3.upload_file(local_path, CODE_BUCKET, s3_key)
             print(f"  Uploaded {s3_key}")
 
+
+def backup_jobs_locally(s3, final_jobs):
+    if not CONFIG.get("keep_backup_of_input_materials", False):
+        return
+    
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = os.path.join(BASE_DIR, "backup", timestamp)
+    
+    print(f"[Master] Backing up input materials to local folder: {backup_dir}...")
+    for folder, keys in final_jobs.items():
+        for key in keys:
+            local_file_path = os.path.normpath(os.path.join(backup_dir, key))
+            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+            try:
+                s3.download_file(BUCKET, key, local_file_path)
+            except Exception as e:
+                print(f"[Master] Failed to back up {key}: {e}")
+                
+    print(f"[Master] Backup to {backup_dir} finished.")
 
 def discover_and_sanitize_jobs(s3):
     print("[Master] Discovering jobs in MinIO...")
@@ -165,9 +171,13 @@ def enqueue_jobs(q, final_jobs, failed_registry, started_registry, finished_regi
         print(f"[Master] Queued job: {folder}")
 
 
+from startup_checks import run_startup_checks
+
 def main():
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
+
+    run_startup_checks()
 
     r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
     if CONFIG.get("flush_cache_on_startup"):
@@ -185,6 +195,7 @@ def main():
 
     try:
         final_jobs = discover_and_sanitize_jobs(s3)
+        backup_jobs_locally(s3, final_jobs)
         enqueue_jobs(q, final_jobs, failed_registry, started_registry, finished_registry)
             
         print("[Master] Done queuing jobs. Master will now exit.")

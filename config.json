@@ -4,7 +4,10 @@
     "max_retry_limit_per_video": 3,
     "flush_cache_on_startup": false,
     "keep_backup_of_input_materials": true,
+    "update_workers_config": true,
     "redis_public_host": "gjzqxbrmsx.localto.net",
-    "redis_public_port": 6623
-
+    "redis_public_port": 6428,
+    "minio_public": "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/",
+    "vastai_api_key": "c55e7735e11d4cbab86bd25ff9825af42289a4409f5377ac49393ea504307cc4",
+    "docker_image_path": "burnerspam/vast-worker-instance:latest"
 }

@@ -1,0 +1,7 @@
+*.mp4
+*.png
+*.srt
+input_files/
+output/
+*.exe
+_internal/
