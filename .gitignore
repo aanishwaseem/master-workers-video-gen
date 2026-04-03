@@ -16,3 +16,7 @@ scripts/old/
 backup/
 
 .vscode/
+
+worker_runtime_scripts/Video_Gen_from_burnerspam-v21/__pycache__/
+worker_runtime_scripts/Video_Gen_from_burnerspam-v21/bin/
+worker_runtime_scripts/Video_Gen_from_burnerspam-v21/ffmpeg6/
