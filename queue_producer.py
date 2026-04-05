@@ -171,13 +171,10 @@ def enqueue_jobs(q, final_jobs, failed_registry, started_registry, finished_regi
         print(f"[Master] Queued job: {folder}")
 
 
-from startup_checks import run_startup_checks
 
-def main():
+def produce_queues_and_buckets():
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
-
-    run_startup_checks()
 
     r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
     if CONFIG.get("flush_cache_on_startup"):
@@ -198,11 +195,8 @@ def main():
         backup_jobs_locally(s3, final_jobs)
         enqueue_jobs(q, final_jobs, failed_registry, started_registry, finished_registry)
             
-        print("[Master] Done queuing jobs. Master will now exit.")
+        print("[Master] Done queuing jobs.")
 
     except Exception as e:
         print(f"[Master] Unexpected error: {e}")
 
-
-if __name__ == "__main__":
-    main()

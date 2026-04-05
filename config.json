@@ -1,13 +1,12 @@
 {
-    "MAX_CONCURRENCY_OF_VIDEO_GEN_SCRIPT": 1,
     "burst_worker_when_inactive": true,
     "max_retry_limit_per_video": 3,
     "flush_cache_on_startup": false,
     "keep_backup_of_input_materials": true,
     "update_workers_config": true,
     "redis_public_host": "gjzqxbrmsx.localto.net",
-    "redis_public_port": 1681,
+    "redis_public_port": 6446,
     "minio_public": "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/",
-    "vastai_api_key": "bc65e0fee0467e161b4b4cbbfa9af1062f13bd9d9a29b1dd666014e7e624c9c2",
+    "vastai_api_key": "",
     "docker_image_path": "burnerspam/vast-worker-instance:v1.0"
 }

@@ -11,7 +11,7 @@ import os
 import redis
 from rq import Queue
 from startup_checks import run_startup_checks
-
+from queue_producer import produce_queues_and_buckets
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Load master config to get vastai properties
@@ -62,7 +62,7 @@ def main():
     run_startup_checks()
     
     print("Checking initial configurations...")
-    
+    produce_queues_and_buckets()
     try:
         r = redis.Redis(host="127.0.0.1", port=6379, decode_responses=True)
         q = Queue("video_jobs", connection=r)
