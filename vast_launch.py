@@ -2,6 +2,7 @@ import sys
 import collections
 import collections.abc
 collections.Callable = collections.abc.Callable
+import math
 
 from vastai_sdk import VastAI
 import json
@@ -57,21 +58,53 @@ def display_stats(status_list):
     print(f"====================================")
 
 
+def get_queue_count(worker_config):
+    """Fetches the current number of jobs in the designated Redis queue."""
+    try:
+        redis_host = worker_config.get("redis_host", "127.0.0.1")
+        redis_port = worker_config.get("redis_port", 6379)
+        queue_name = worker_config.get("worker_queue_name", "video_jobs")
+        
+        r = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        q = Queue(queue_name, connection=r)
+        return len(q.job_ids)
+    except Exception as e:
+        print(f"⚠️ Could not fetch queue count from Redis: {e}")
+        return 0
+
+def calculate_max_workers_allowed(queue_count, max_concurrency):
+    """Calculates maximum workers based on jobs and concurrency limit."""
+    if queue_count == 0 or max_concurrency <= 0:
+        return 0
+    return math.ceil(queue_count / max_concurrency)
+
+def check_job_requirements(queue_count, max_concurrency):
+    """Validates if there are enough jobs in the queue to justify a worker."""
+    if queue_count < max_concurrency:
+        print(f"\n⚠️ Less jobs than a single worker can perform. Waiting for more jobs, at least {max_concurrency}.")
+        return False
+    return True
+
+
 def main():
     print("Running startup checks...")
     run_startup_checks()
     
     print("Checking initial configurations...")
     produce_queues_and_buckets()
-    try:
-        r = redis.Redis(host="127.0.0.1", port=6379, decode_responses=True)
-        q = Queue("video_jobs", connection=r)
-        queue_count = len(q.job_ids)
-        print(f"\n======================================")
-        print(f"📊 JOBS CURRENTLY IN QUEUE: {queue_count}")
-        print(f"======================================\n")
-    except Exception as e:
-        print(f"⚠️ Could not fetch queue count from Redis: {e}")
+    
+    queue_count = get_queue_count(WORKER_CONFIG)
+    print(f"\n======================================")
+    print(f"📊 JOBS CURRENTLY IN QUEUE: {queue_count}")
+    print(f"======================================\n")
+    
+    max_concurrency = WORKER_CONFIG.get("worker_max_concurrency", 2)
+    
+    if not check_job_requirements(queue_count, max_concurrency):
+        return
+        
+    max_workers_allowed = calculate_max_workers_allowed(queue_count, max_concurrency)
+    print(f"🎯 Maximum workers allowed for {queue_count} jobs (concurrency {max_concurrency}): {max_workers_allowed}\n")
     
     # Load master config to check if we should update workers config
     if MASTER_CONFIG.get("update_workers_config", False):
@@ -90,8 +123,13 @@ def main():
         return
 
     launched_instances = []
+    launched_count = 0
 
     for offer in offers:
+        if launched_count >= max_workers_allowed:
+            print(f"\n🛑 Reached maximum allowed workers ({max_workers_allowed}) for the current job queue.")
+            break
+            
         offer_id = offer.get('id')
         gpu_name = offer.get('gpu_name', 'Unknown')
         num_gpus = offer.get('num_gpus', 1)
@@ -99,7 +137,7 @@ def main():
         ram = offer.get('sys_ram', 'Unknown')
         reliability = offer.get('reliability2', 'Unknown')
         
-        print(f"\n===== INSTANCE SPECS =====")
+        print(f"\n===== INSTANCE SPECS (Worker {launched_count + 1} of {max_workers_allowed}) =====")
         print(f"ID:          {offer_id}")
         print(f"GPU:         {num_gpus}x {gpu_name}")
         print(f"Price:       ${price_hr}/hr")
@@ -135,6 +173,12 @@ def main():
             print(f"🚀 Instance successfully launched! Assigned Instance ID: {new_instance_id}")
             
             launched_instances.append(new_instance_id)
+            launched_count += 1
+            
+            # Re-evaluate logic before asking to spin up another
+            if launched_count >= max_workers_allowed:
+                print(f"\n🛑 Reached maximum allowed workers ({max_workers_allowed}) for the current job queue.")
+                break
             
             # Option to continue launching more or stop
             more = input("Do you want to launch MORE instances? (y/n): ").strip().lower()
