@@ -28,7 +28,7 @@ if os.path.exists(worker_config_path):
     with open(worker_config_path, "r") as f:
         WORKER_CONFIG = json.load(f)
 
-API_KEY = MASTER_CONFIG.get("vastai_api_key", "c55e7735e11d4cbab86bd25ff9825af42289a4409f5377ac49393ea504307cc4")
+API_KEY = MASTER_CONFIG.get("vastai_api_key", "9f186e2555d7dd1e0b1f72f139e540b41497881390ee7162dbd8d19a0024467e")
 sdk = VastAI(api_key=API_KEY)
 FULL_IMAGE_PATH = MASTER_CONFIG.get("docker_image_path", "burnerspam/vast-worker-instance:latest") # Update this
 

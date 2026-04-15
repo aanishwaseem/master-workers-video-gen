@@ -5,8 +5,8 @@
     "keep_backup_of_input_materials": true,
     "update_workers_config": true,
     "redis_public_host": "gjzqxbrmsx.localto.net",
-    "redis_public_port": 6446,
+    "redis_public_port": 8539,
     "minio_public": "https://unfunereal-unconvertibly-tresa.ngrok-free.dev/",
-    "vastai_api_key": "",
+    "vastai_api_key": "9f186e2555d7dd1e0b1f72f139e540b41497881390ee7162dbd8d19a0024467e",
     "docker_image_path": "burnerspam/vast-worker-instance:v1.0"
 }
